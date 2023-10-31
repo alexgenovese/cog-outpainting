@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 from diffusers import DiffusionPipeline
+from typing import Optional
 
 class WeightsDownloadCache:
     def __init__(
@@ -68,7 +69,7 @@ class WeightsDownloadCache:
         print(f"Free disk space: {disk_usage.free}")
         return disk_usage.free >= self.min_disk_free
 
-    def ensure(self, url: str, **hf_args: None) -> str:
+    def ensure(self, url: str, hf_args: Optional[object] = None ) -> str:
         """
         Ensure weights file is in the cache and return its path.
 
@@ -102,7 +103,7 @@ class WeightsDownloadCache:
         short_hash = hashed_url[:16]  # Use the first 16 characters of the hash
         return os.path.join(self.base_dir, short_hash)
 
-    def download_weights(self, url_or_repo_id: str, dest: str, hf_args: None) -> None:
+    def download_weights(self, url_or_repo_id: str, dest: str, hf_args: Optional[object] = None ) -> None:
         """
         Download weights file from a URL, ensuring there's enough disk space.
 
@@ -121,12 +122,16 @@ class WeightsDownloadCache:
         
         try:
             if hf_args is not None: 
+                hf_token = hf_args.get('token', None)
+                variant = hf_args.get('variant', None)
+                torch_type = hf_args.get('torch_type', None)
+
                 output = DiffusionPipeline.from_pretrained(
                     url_or_repo_id,
-                    torch_dtype=hf_args.torch_type,
+                    torch_dtype=torch_type,
                     use_safetensors=True,
-                    variant=hf_args.variant,
-                    token=hf_args.token
+                    variant=variant,
+                    use_auth_token=hf_token
                 )
                 output.save_pretrained(dest, safe_serialization=True)
             else:

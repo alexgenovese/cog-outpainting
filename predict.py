@@ -7,6 +7,7 @@ from diffusers import StableDiffusionXLInpaintPipeline
 from diffusers.utils import load_image
 import PIL
 from src.helpers import create_outpainting_image_and_mask
+from src.weights import WeightsDownloadCache
 
 VAE = ""
 BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -25,6 +26,7 @@ class Predictor(BasePredictor):
         self.base_model_dir = ""
         self.refiner_model_dir = ""
         self.vae_model_dir = ""
+        self.weights_cache = WeightsDownloadCache()
         print("setup took: ", time.time() - start)
     
 
@@ -73,8 +75,6 @@ class Predictor(BasePredictor):
         
         conditioning_image, outpaint_mask = create_outpainting_image_and_mask(init_image, 0.5)
 
-        seed = 12345
-
         output = pipe(
             prompt,
             image=conditioning_image,
@@ -83,8 +83,7 @@ class Predictor(BasePredictor):
             width=1024,
             generator=seed,
             num_inference_steps=num_inference_steps
-        )
-        
+        ).images[0]
 
-        return Path( output.images[0] )
+        return Path( output )
     
