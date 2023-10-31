@@ -20,8 +20,8 @@ class Predictor(BasePredictor):
         self.hf_token = "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"
         self.vae = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.torch_type = torch.float32 if torch.is_floating_point(32) else torch.float16 
-        self.variant = "fp32" if torch.is_floating_point(32) else "fp16"
+        self.torch_type = torch.float32 if torch.is_floating_point(torch.tensor(32)) else torch.float16 
+        self.variant = "fp32" if torch.is_floating_point(torch.tensor(32)) else "fp16"
         self.base_model_dir = ""
         self.refiner_model_dir = ""
         self.vae_model_dir = ""

@@ -86,7 +86,7 @@ class WeightsDownloadCache:
             self.lru_paths.remove(path)
         else:
             self._misses += 1
-            self.download_weights(url, path, **hf_args)
+            self.download_weights(url, path, hf_args)
 
         self.lru_paths.append(path)  # Add file to end of cache
         return path
@@ -102,13 +102,13 @@ class WeightsDownloadCache:
         short_hash = hashed_url[:16]  # Use the first 16 characters of the hash
         return os.path.join(self.base_dir, short_hash)
 
-    def download_weights(self, url_or_repo_id: str, dest: str, **hf_args: None) -> None:
+    def download_weights(self, url_or_repo_id: str, dest: str, hf_args: None) -> None:
         """
         Download weights file from a URL, ensuring there's enough disk space.
 
         :param url: URL to download weights file from
         :param hf: Huggingface variable. Required token in global variables to work properly
-        :param **hf_args
+        :param hf_args
         :param dest: Path to store weights file.
         """
         print("Ensuring enough disk space...")
