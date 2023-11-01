@@ -1,11 +1,14 @@
 import os
 import time
 import torch
+import shutil
+import socket
+from PIL import Image
+import urllib.request
 from cog import BasePredictor, Input, Path
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import StableDiffusionXLInpaintPipeline
 from diffusers.utils import load_image
-import PIL
 from src.helpers import create_outpainting_image_and_mask
 from src.weights import WeightsDownloadCache
 
@@ -28,6 +31,23 @@ class Predictor(BasePredictor):
         self.vae_model_dir = ""
         self.weights_cache = WeightsDownloadCache()
         print("setup took: ", time.time() - start)
+
+    def isValid(url):
+        try:
+            socket.create_connection((url, 80))
+            return True
+        except socket.gaierror:
+            return False
+        except OSError:
+            return False
+
+    def load_image(self, path):
+        # check if it's a remote url 
+        if self.isValid(path):
+            urllib.request.urlretrieve(path, "/tmp/image.png") 
+        else 
+            shutil.copyfile(path, "/tmp/image.png")
+        return load_image("/tmp/image.png").convert("RGB")
     
 
     #@torch.inference_mode()
@@ -70,7 +90,7 @@ class Predictor(BasePredictor):
         pipe = StableDiffusionXLInpaintPipeline.from_pretrained(self.base_model_dir, torch_dtype=self.torch_type, variant=self.variant)
         pipe.enable_model_cpu_offload()
 
-        init_image = load_image(image_url)
+        init_image = self.load_image(image_url)
         init_image = init_image.resize((512, 512))
         
         conditioning_image, outpaint_mask = create_outpainting_image_and_mask(init_image, 0.5)

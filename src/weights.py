@@ -136,8 +136,6 @@ class WeightsDownloadCache:
                 output.save_pretrained(dest, safe_serialization=True)
             else:
                 output = subprocess.check_output(["pget", "-x", url_or_repo_id, dest], close_fds=True)
-                
-            print(output)
         except subprocess.CalledProcessError as e:
             # If download fails, clean up and re-raise exception
             print(e.output)
