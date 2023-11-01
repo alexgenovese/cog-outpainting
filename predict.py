@@ -45,7 +45,7 @@ class Predictor(BasePredictor):
         # check if it's a remote url 
         if self.isValid(path):
             urllib.request.urlretrieve(path, "/tmp/image.png") 
-        else 
+        else:
             shutil.copyfile(path, "/tmp/image.png")
         return load_image("/tmp/image.png").convert("RGB")
     
