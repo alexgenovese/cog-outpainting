@@ -5,6 +5,7 @@ import shutil
 import socket
 from PIL import Image
 import urllib.request
+from urllib.parse import urlparse
 from cog import BasePredictor, Input, Path
 from compel import Compel, ReturnedEmbeddingsType
 from diffusers import StableDiffusionXLInpaintPipeline
@@ -32,23 +33,10 @@ class Predictor(BasePredictor):
         self.weights_cache = WeightsDownloadCache()
         print("setup took: ", time.time() - start)
 
-    def isValid(url):
-        try:
-            socket.create_connection((url, 80))
-            return True
-        except socket.gaierror:
-            return False
-        except OSError:
-            return False
-
     def load_image(self, path):
-        # check if it's a remote url 
-        if self.isValid(path):
-            urllib.request.urlretrieve(path, "/tmp/image.png") 
-        else:
-            shutil.copyfile(path, "/tmp/image.png")
+        shutil.copyfile(path, "/tmp/image.png")
         return load_image("/tmp/image.png").convert("RGB")
-    
+
 
     #@torch.inference_mode()
     def predict(
