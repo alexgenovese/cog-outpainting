@@ -16,6 +16,7 @@ from src.weights import WeightsDownloadCache
 VAE = ""
 BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
 REFINER_MODEL = ""
+temp_local_image = "/tmp/image.png"
 
 class Predictor(BasePredictor):
 
@@ -34,8 +35,8 @@ class Predictor(BasePredictor):
         print("setup took: ", time.time() - start)
 
     def load_image(self, path):
-        shutil.copyfile(path, "/tmp/image.png")
-        return load_image("/tmp/image.png").convert("RGB")
+        shutil.copyfile(path, temp_local_image)
+        return load_image(temp_local_image).convert("RGB")
 
 
     #@torch.inference_mode()
@@ -93,5 +94,7 @@ class Predictor(BasePredictor):
             num_inference_steps=num_inference_steps
         ).images[0]
 
-        return Path( output )
+        output.save(temp_local_image)
+
+        return Path( temp_local_image )
     
