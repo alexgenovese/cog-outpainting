@@ -4,19 +4,18 @@ from huggingface_hub import login
 from diffusers import AutoencoderKL,  StableDiffusionXLPipeline, DiffusionPipeline
 
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-VAE_CACHE = '/src/weights-cache/vae'
-# BASE_MODEL = "https://reica.s3.eu-south-1.amazonaws.com/__INTERNAL__/models/reica_06.safetensors"
+VAE_CACHE = '/content/weights-cache/vae'
 BASE_MODEL = "alexgenovese/reica06"
-BASE_MODEL_CACHE = '/src/weights-cache/base_model'
+BASE_MODEL_CACHE = '/content/weights-cache/base_model'
 REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
-REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
+REFINER_MODEL_CACHE = '/content/weights-cache/refiner_model'
 hf_token = "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"
 
 pipe = None
 vae = None
 logged_in = False 
 
-def login():
+def login_hf():
     if logged_in is False:
         login( token = hf_token )
     
@@ -41,7 +40,7 @@ def cache_base_model():
             os.makedirs(BASE_MODEL_CACHE)
             start = time.time()
             print("Converting Reica custom model")
-            pipe = StableDiffusionXLPipeline.from_pretrained(BASE_MODEL, vae = vae, use_safetensors=True)
+            pipe = StableDiffusionXLPipeline.from_pretrained( BASE_MODEL )
             pipe.save_pretrained(BASE_MODEL_CACHE, safe_serialization=True)
             print("Downloading took: ", time.time() - start)
         except Exception as error:
@@ -51,21 +50,18 @@ def cache_base_model():
             print("BASE_MODEL - Removed empty cache directory")
 
 
-def cache_refiner():
+def cache_refiner(pipe):
     if not os.path.exists(REFINER_MODEL_CACHE):
         try: 
             os.makedirs(REFINER_MODEL_CACHE)
 
             if pipe is None:
-                raise Exception("No base model found")
+                try: 
+                  pipe = StableDiffusionXLPipeline.from_pretrained( BASE_MODEL, cache_dir=BASE_MODEL_CACHE )
+                except Exception as error:
+                  raise Exception("No base model found")
 
-            refiner = DiffusionPipeline.from_pretrained(
-                REFINER_MODEL,
-                text_encoder_2=pipe.text_encoder_2,
-                vae=vae,
-                use_safetensors=True,
-                variant="fp16"
-            )
+            refiner = DiffusionPipeline.from_pretrained(REFINER_MODEL)
             refiner.save_pretrained(REFINER_MODEL_CACHE, safe_serialization=True)
         except Exception as error:
             print("REFINER_MODEL - Something went wrong while downloading")
@@ -74,19 +70,20 @@ def cache_refiner():
             print("REFINER_MODEL - Removed empty cache directory")
 
 
+
 if __name__ == "__main__":
     print("-----> Start caching models...")
     with tqdm(total=100, desc="Creating cache") as pbar:
-        login()
+        login_hf()
         pbar.update(25)
 
-        cache_vae()
+        cache_vae(vae)
         pbar.update(25)
 
-        cache_base_model()
+        cache_base_model(pipe)
         pbar.update(25)
 
-        cache_refiner()
+        cache_refiner(pipe)
         pbar.update(25)
 
     print("-----> Caching completed!")
