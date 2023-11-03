@@ -1,6 +1,7 @@
 import os, time, torch, shutil
 from tqdm import tqdm
 from PIL import Image
+from huggingface_hub import login
 from cog import BasePredictor, Input, Path
 from diffusers import StableDiffusionXLInpaintPipeline, AutoencoderKL, DiffusionPipeline
 from diffusers.utils import load_image
@@ -61,6 +62,9 @@ class Predictor(BasePredictor):
             self.in_base_model = None
             self.in_ref_model = None
             self.in_vae_model = None
+
+            # Login in HF
+            login( token = self.hf_token )
 
             # check if cached models
             if not os.path.exists(self.cache_vae_model): 
