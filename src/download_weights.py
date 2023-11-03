@@ -4,11 +4,11 @@ from huggingface_hub import login
 from diffusers import AutoencoderKL,  StableDiffusionXLPipeline, DiffusionPipeline
 
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-VAE_CACHE = '/content/weights-cache/vae'
+VAE_CACHE = '/src/weights-cache/vae'
 BASE_MODEL = "alexgenovese/reica06"
-BASE_MODEL_CACHE = '/content/weights-cache/base_model'
+BASE_MODEL_CACHE = '/src/weights-cache/base_model'
 REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
-REFINER_MODEL_CACHE = '/content/weights-cache/refiner_model'
+REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
 hf_token = "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"
 
 pipe = None
