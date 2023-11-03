@@ -1,24 +1,33 @@
 import os, subprocess, time, shutil
 from tqdm import tqdm
-from src.downloader import download
+from huggingface_hub import login
 from diffusers import AutoencoderKL,  StableDiffusionXLPipeline, DiffusionPipeline
 
-VAE_CACHE = '/src/weights-cache/vae'
-BASE_MODEL_CACHE = '/src/weights-cache/base_model'
-REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
+VAE_CACHE = '/src/weights-cache/vae'
+# BASE_MODEL = "https://reica.s3.eu-south-1.amazonaws.com/__INTERNAL__/models/reica_06.safetensors"
 BASE_MODEL = "alexgenovese/reica06"
+BASE_MODEL_CACHE = '/src/weights-cache/base_model'
 REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
+REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
 hf_token = "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"
 
 pipe = None
 vae = None
+logged_in = False 
+
+def login():
+    if logged_in is False:
+        login( token = hf_token )
+    
+    return True
+
 
 def cache_vae():
     if not os.path.exists(VAE_CACHE): 
         try:
             os.makedirs(VAE_CACHE)
-            vae = AutoencoderKL.from_pretrained(VAE_MODEL, use_safetensors=True)
+            vae = AutoencoderKL.from_pretrained(VAE_MODEL)
             vae.save_pretrained(VAE_CACHE, safe_serialization=True)
         except Exception as error:
             print("VAE - Something went wrong while downloading")
@@ -30,17 +39,9 @@ def cache_base_model():
     if not os.path.exists(BASE_MODEL_CACHE):
         try:
             os.makedirs(BASE_MODEL_CACHE)
-            # download the file in the cache
-            start = time.time()
-            print("Downloading Reica custom model")
-            file_cache = f"{BASE_MODEL_CACHE}/reica_06.safetensors"
-            download(BASE_MODEL, file_cache)
-            print("Downloading took: ", time.time() - start)
-            
-            # read local file
             start = time.time()
             print("Converting Reica custom model")
-            pipe = StableDiffusionXLPipeline.from_single_file(file_cache, use_safetensors=True)
+            pipe = StableDiffusionXLPipeline.from_pretrained(BASE_MODEL, vae = vae, use_safetensors=True)
             pipe.save_pretrained(BASE_MODEL_CACHE, safe_serialization=True)
             print("Downloading took: ", time.time() - start)
         except Exception as error:
@@ -76,13 +77,16 @@ def cache_refiner():
 if __name__ == "__main__":
     print("-----> Start caching models...")
     with tqdm(total=100, desc="Creating cache") as pbar:
+        login()
+        pbar.update(25)
+
         cache_vae()
-        pbar.update(33)
+        pbar.update(25)
 
         cache_base_model()
-        pbar.update(34)
+        pbar.update(25)
 
         cache_refiner()
-        pbar.update(33)
+        pbar.update(25)
 
     print("-----> Caching completed!")

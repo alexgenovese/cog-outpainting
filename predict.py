@@ -142,7 +142,7 @@ class Predictor(BasePredictor):
         
         print("Starting... ")
         
-        self.in_base_model = StableDiffusionXLInpaintPipeline.from_pretrained(self.in_base_model, vae=self.in_vae_model, torch_dtype=self.get_torch_type(), variant=self.variant)
+        self.in_base_model = StableDiffusionXLInpaintPipeline.from_pretrained(self.in_base_model, cache_dir=self.cache_base_model, vae=self.in_vae_model, torch_dtype=self.get_torch_type(), variant=self.variant)
         self.in_base_model.enable_model_cpu_offload()
 
         init_image = self.load_image(image_url)
