@@ -62,6 +62,7 @@ class Predictor(BasePredictor):
             self.in_base_model = None
             self.in_ref_model = None
             self.in_vae_model = None
+            print(f"Settings {self.variant} {self.torch_type} {self.device}")
 
             # Login in HF
             login( token = self.hf_token )
@@ -75,34 +76,37 @@ class Predictor(BasePredictor):
                 cache_base_model()
             pbar.update(20)
 
-            if not os.path.exists(self.cache_refiner_model):
-                cache_refiner()
+            # if not os.path.exists(self.cache_refiner_model):
+                # cache_refiner()
             pbar.update(20)
 
             # Instanciate references
-            self.in_vae_model = AutoencoderKL.from_pretrained(VAE, torch_dtype=self.get_torch_type(), cache_dir=self.cache_vae_model )
+            print(f"Setup VAE {self.cache_vae_model} {VAE}")
+            self.in_vae_model = AutoencoderKL.from_pretrained(VAE, torch_dtype=self.torch_type, cache_dir=self.cache_vae_model )
             pbar.update(10)
 
-            self.in_base_model = DiffusionPipeline.from_pretrained(
+            print(f"Setup BASE {self.cache_base_model} {BASE_MODEL}")
+            self.in_base_model = StableDiffusionXLInpaintPipeline.from_pretrained(
                 BASE_MODEL,
                 cache_dir=self.cache_base_model,
-                torch_dtype=self.get_torch_type(),
-                use_safetensors=False,
-                vae=self.in_vae_model,
-                add_watermark=False
+                torch_dtype=self.torch_type,
+                vae=self.in_vae_model
             )
             pbar.update(10)
-
+            
+            """
+            print(f"Setup REFINER {self.cache_refiner_model} {REFINER_MODEL}")
             self.in_ref_model = DiffusionPipeline.from_pretrained(
                 REFINER_MODEL,
                 cache_dir=self.cache_refiner_model,
                 text_encoder_2=self.in_base_model.text_encoder_2,
                 vae=self.in_vae_model,
-                torch_dtype=self.get_torch_type(),
-                use_safetensors=False,
+                torch_dtype=self.torch_type,
                 add_watermark=False
             )
             # refiner.watermark = NoWatermark() # remove base watermark
+            """
+
             pbar.update(10)
 
         print("setup took: ", time.time() - start)
@@ -145,8 +149,6 @@ class Predictor(BasePredictor):
             seed = torch.manual_seed(int.from_bytes(os.urandom(2), "big"))
         
         print("Starting... ")
-        
-        self.in_base_model = StableDiffusionXLInpaintPipeline.from_pretrained(self.in_base_model, cache_dir=self.cache_base_model, vae=self.in_vae_model, torch_dtype=self.get_torch_type(), variant=self.variant)
         self.in_base_model.enable_model_cpu_offload()
 
         init_image = self.load_image(image_url)
