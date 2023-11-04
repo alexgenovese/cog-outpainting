@@ -5,7 +5,7 @@ from diffusers import AutoencoderKL,  StableDiffusionXLPipeline, DiffusionPipeli
 
 VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
 VAE_CACHE = '/src/weights-cache/vae'
-BASE_MODEL = "alexgenovese/reica06"
+BASE_MODEL = "SG161222/RealVisXL_V2.0"
 BASE_MODEL_CACHE = '/src/weights-cache/base_model'
 REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
 REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
@@ -50,7 +50,7 @@ def cache_base_model():
             print("BASE_MODEL - Removed empty cache directory")
 
 
-def cache_refiner(pipe):
+def cache_refiner():
     if not os.path.exists(REFINER_MODEL_CACHE):
         try: 
             os.makedirs(REFINER_MODEL_CACHE)
@@ -77,13 +77,13 @@ if __name__ == "__main__":
         login_hf()
         pbar.update(25)
 
-        cache_vae(vae)
+        cache_vae()
         pbar.update(25)
 
-        cache_base_model(pipe)
+        cache_base_model()
         pbar.update(25)
 
-        cache_refiner(pipe)
+        cache_refiner()
         pbar.update(25)
 
     print("-----> Caching completed!")

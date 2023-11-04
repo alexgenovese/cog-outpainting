@@ -11,7 +11,7 @@ from src.download_weights import cache_refiner, cache_base_model, cache_vae
 VAE_CACHE = '/src/weights-cache/vae'
 BASE_MODEL_CACHE = '/src/weights-cache/base_model'
 REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
-BASE_MODEL = "alexgenovese/reica06"
+BASE_MODEL = "SG161222/RealVisXL_V2.0"
 REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
 VAE = "madebyollin/sdxl-vae-fp16-fix"
 
