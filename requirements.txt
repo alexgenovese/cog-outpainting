@@ -1,0 +1,10 @@
+torchvision==0.15.2
+transformers==4.34.1
+torch==2.0.1
+compel==2.0.2
+omegaconf==2.3.0
+invisible-watermark==0.2.0
+accelerate==0.24.1
+safetensors==0.4.0
+kornia==0.7.0
+huggingface_hub>=0.16.4
