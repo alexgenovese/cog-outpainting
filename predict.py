@@ -9,13 +9,7 @@ from diffusers.utils import load_image
 from src.helpers import create_outpainting_image_and_mask
 from src.download_weights import cache_refiner, cache_base_model, cache_vae
 from src.prompt import PromptManager
-
-VAE_CACHE = './weights-cache/vae'
-BASE_MODEL_CACHE = './weights-cache/base_model'
-REFINER_MODEL_CACHE = './weights-cache/refiner_model'
-BASE_MODEL = "alexgenovese/reica06"
-REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
-VAE = "madebyollin/sdxl-vae-fp16-fix"
+from src.constants import VAE_CACHE, BASE_MODEL_CACHE, REFINER_MODEL_CACHE, BASE_MODEL, REFINER_MODEL, VAE
 
 temp_local_image = "./image.png"
 
@@ -50,6 +44,44 @@ class Predictor(BasePredictor):
         print("CPU Device type")
         return "cpu"
     
+    def get_variant(seflf):
+        if torch.backends.mps.is_available():
+            return 'fp32'
+        
+        if torch.cuda.is_available():
+            return 'fp16'
+
+        return 'fp16'
+
+    def soft_clamp_tensor(self, input_tensor, threshold=3.5, boundary=4):
+        if max(abs(input_tensor.max()), abs(input_tensor.min())) < boundary:
+            return input_tensor
+        
+        channel_dim = 1
+
+        max_vals = input_tensor.max(channel_dim, keepdim=True)[0]
+        max_replace = ((input_tensor - threshold) / (max_vals - threshold)) * (boundary - threshold) + threshold
+        over_mask = (input_tensor > threshold)
+
+        min_vals = input_tensor.min(channel_dim, keepdim=True)[0]
+        min_replace = ((input_tensor + threshold) / (min_vals + threshold)) * (-boundary + threshold) - threshold
+        under_mask = (input_tensor < -threshold)
+
+        return torch.where(over_mask, max_replace, torch.where(under_mask, min_replace, input_tensor))
+
+    def callback(self, pipe, step_index, timestep, cbk):
+        # enumerate timestep --> end_cfg
+        expected_boundary = 8
+        threshold_factor = 6.5
+
+        extreme = max( round(cbk["latents"].max().item(),2) , round(cbk["latents"].min().item(), 2) )
+        print("timestep:", int(timestep.item()), "max:", round(cbk["latents"].max().item(),2), "min:", round(cbk["latents"].min().item(),2), "mean:", round(cbk["latents"].mean().item(),2))
+
+        if extreme > expected_boundary:
+            cbk['latents'] = self.soft_clamp_tensor(cbk["latents"], expected_boundary * threshold_factor, expected_boundary)
+        
+        return cbk
+
     def setup(self):
         start = time.time()
         print("Setup started...")
@@ -57,7 +89,7 @@ class Predictor(BasePredictor):
             self.hf_token = "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"
             self.device = self.get_device_type()
             self.torch_type = self.get_torch_type()
-            self.variant = "fp32" if torch.is_floating_point(torch.tensor(32)) else "fp16"
+            self.variant = self.get_variant()
             self.cache_base_model = BASE_MODEL_CACHE
             self.cache_refiner_model = REFINER_MODEL_CACHE
             self.cache_vae_model = VAE_CACHE
@@ -126,15 +158,16 @@ class Predictor(BasePredictor):
                     negative_prompt: str = "(((golden ratio))), bw, (tan skin:1.3),(worst quality:2), (low quality:2), low-res, (nose2), (((chromatic aberration))), ((blur censor)), ((blurry)), (blurry background), (blurry foreground), bokeh, (chromatic aberration), cosplay photo, eyelashes, motion blur, nose, overexposed, (deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, 4 fingers, 3 fingers, too many fingers, long neck, open mouth, closed mouth",
                     num_inference_steps: int = 30,
                     image_url: str = "00041-3204191605.png",
-                    seed: str = 3204191605
+                    seed_number: str = 3204191605
         ):
 
         print(f"Starting {self.variant} {self.torch_type} {self.device}")
 
-        if seed is None: 
-            seed = torch.manual_seed(int.from_bytes(os.urandom(2), "big"))
-        else:
-            seed = torch.manual_seed(seed)
+        if seed_number is None: 
+            seed_number = int.from_bytes(os.urandom(2), "big")
+            seed = torch.manual_seed(seed_number)
+        else: 
+            seed = torch.manual_seed(seed_number)
 
         # self.in_base_model.enable_model_cpu_offload()
 
