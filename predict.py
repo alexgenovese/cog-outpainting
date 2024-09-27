@@ -1,286 +1,203 @@
-import os, time, torch, shutil
-from tqdm import tqdm
-from PIL import Image
-from compel import Compel
-from huggingface_hub import login
+import torch, os
+import numpy as np
 from cog import BasePredictor, Input, Path
-from diffusers import StableDiffusionXLInpaintPipeline, AutoencoderKL, DiffusionPipeline
-from diffusers.utils import load_image
-from src.helpers import create_outpainting_image_and_mask
-from src.download_weights import cache_refiner, cache_base_model, cache_vae
-from src.prompt import PromptManager
-from src.constants import VAE_CACHE, BASE_MODEL_CACHE, REFINER_MODEL_CACHE, BASE_MODEL, REFINER_MODEL, VAE
+from diffusers import AutoencoderKL, TCDScheduler
+from diffusers.models.model_loading_utils import load_state_dict
+from huggingface_hub import hf_hub_download
+from utils import get_torch_device
 
-temp_local_image = "./image.png"
+from controlnet_union import ControlNetModel_Union
+from pipeline_fill_sd_xl import StableDiffusionXLFillPipeline
+
+from PIL import Image, ImageDraw
+
+from src.download_weights import download_weights
+from constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE, base_path
+
 
 class Predictor(BasePredictor):
-
-    def get_torch_type(self):
-        if torch.backends.mps.is_available():
-            print("Torch MPS")
-            return torch.float16
-        
-        if torch.cuda.is_available():
-            if torch.cuda.is_bf16_supported():
-                return torch.bfloat16
-
-            if torch.is_floating_point(torch.tensor(32)):
-                return torch.float32
-            
-            if torch.is_floating_point(torch.tensor(16)):
-                return torch.float16
-
-        return torch.float16
-    
-    def get_device_type(self):
-        if torch.backends.mps.is_available():
-            print("MPS Device Type")
-            return "mps"
-        
-        if torch.cuda.is_available():
-            print("CUDA Device type")
-            return "cuda"
-        
-        print("CPU Device type")
-        return "cpu"
-    
-    def get_variant(seflf):
-        if torch.backends.mps.is_available():
-            return 'fp32'
-        
-        if torch.cuda.is_available():
-            return 'fp16'
-
-        return 'fp16'
-
-    def soft_clamp_tensor(self, input_tensor, threshold=3.5, boundary=4):
-        if max(abs(input_tensor.max()), abs(input_tensor.min())) < boundary:
-            return input_tensor
-        
-        channel_dim = 1
-
-        max_vals = input_tensor.max(channel_dim, keepdim=True)[0]
-        max_replace = ((input_tensor - threshold) / (max_vals - threshold)) * (boundary - threshold) + threshold
-        over_mask = (input_tensor > threshold)
-
-        min_vals = input_tensor.min(channel_dim, keepdim=True)[0]
-        min_replace = ((input_tensor + threshold) / (min_vals + threshold)) * (-boundary + threshold) - threshold
-        under_mask = (input_tensor < -threshold)
-
-        return torch.where(over_mask, max_replace, torch.where(under_mask, min_replace, input_tensor))
-
-    def callback(self, pipe, step_index, timestep, cbk):
-        # enumerate timestep --> end_cfg
-        expected_boundary = 8
-        threshold_factor = 6.5
-
-        extreme = max( round(cbk["latents"].max().item(),2) , round(cbk["latents"].min().item(), 2) )
-        print("timestep:", int(timestep.item()), "max:", round(cbk["latents"].max().item(),2), "min:", round(cbk["latents"].min().item(),2), "mean:", round(cbk["latents"].mean().item(),2))
-
-        if extreme > expected_boundary:
-            cbk['latents'] = self.soft_clamp_tensor(cbk["latents"], expected_boundary * threshold_factor, expected_boundary)
-        
-        return cbk
-
     def setup(self):
-        start = time.time()
-        print("Setup started...")
-        with tqdm(total=100, desc="Setup") as pbar:
-            self.hf_token = "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"
-            self.device = self.get_device_type()
-            self.torch_type = self.get_torch_type()
-            self.variant = self.get_variant()
-            self.cache_base_model = BASE_MODEL_CACHE
-            self.cache_refiner_model = REFINER_MODEL_CACHE
-            self.cache_vae_model = VAE_CACHE
-            self.in_base_model = None
-            self.in_ref_model = None
-            self.in_vae_model = None
-            self.prompt_manager = PromptManager(Compel)
+        # Download or cache
+        download_weights()
 
-            print(f"Settings {self.variant} {self.torch_type} {self.device}")
-
-            # Login in HF
-            login( token = self.hf_token )
-
-            # check if cached models
-            if not os.path.exists(self.cache_vae_model): 
-                self.vae = cache_vae()
-            pbar.update(20)
-
-            if not os.path.exists(self.cache_base_model):
-                cache_base_model()
-            pbar.update(20)
-
-            # if not os.path.exists(self.cache_refiner_model):
-                # cache_refiner()
-            pbar.update(20)
-
-            # Instanciate references
-            print(f"Setup VAE {self.cache_vae_model} {VAE}")
-            self.in_vae_model = AutoencoderKL.from_pretrained(VAE, torch_dtype=self.torch_type, cache_dir=self.cache_vae_model )
-            pbar.update(10)
-
-            print(f"Setup BASE {self.cache_base_model} {BASE_MODEL}")
-            self.in_base_model = StableDiffusionXLInpaintPipeline.from_pretrained(
-                BASE_MODEL,
-                cache_dir=self.cache_base_model,
-                torch_dtype=self.torch_type,
-                vae=self.in_vae_model,
-                add_watermark=False
-            )
-            self.in_base_model.to(self.device)
-            pbar.update(10)
-            
-            """
-            print(f"Setup REFINER {self.cache_refiner_model} {REFINER_MODEL}")
-            self.in_ref_model = DiffusionPipeline.from_pretrained(
-                REFINER_MODEL,
-                cache_dir=self.cache_refiner_model,
-                text_encoder_2=self.in_base_model.text_encoder_2,
-                vae=self.in_vae_model,
-                torch_dtype=self.torch_type,
-                add_watermark=False
-            )
-            # refiner.watermark = NoWatermark() # remove base watermark
-            """
-
-            pbar.update(10)
-
-        print("setup took: ", time.time() - start)
-
-    def load_image(self, path):
-        shutil.copyfile(path, temp_local_image)
-        return load_image(temp_local_image).convert("RGB")
-
-    def predict_mps(self,
-                    prompt: str = "",
-                    negative_prompt: str = "(((golden ratio))), bw, (tan skin:1.3),(worst quality:2), (low quality:2), low-res, (nose2), (((chromatic aberration))), ((blur censor)), ((blurry)), (blurry background), (blurry foreground), bokeh, (chromatic aberration), cosplay photo, eyelashes, motion blur, nose, overexposed, (deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, 4 fingers, 3 fingers, too many fingers, long neck, open mouth, closed mouth",
-                    num_inference_steps: int = 30,
-                    image_url: str = "00041-3204191605.png",
-                    seed_number: str = 3204191605
-        ):
-
-        print(f"Starting {self.variant} {self.torch_type} {self.device}")
-
-        if seed_number is None: 
-            seed_number = int.from_bytes(os.urandom(2), "big")
-            seed = torch.manual_seed(seed_number)
-        else: 
-            seed = torch.manual_seed(seed_number)
-
-        # self.in_base_model.enable_model_cpu_offload()
-
-        prompt = self.prompt_manager.rewrite_prompt_for_compel(prompt)
-        negative_prompt = self.prompt_manager.rewrite_prompt_for_compel(negative_prompt)
-
-        # Define Compel for Base model 
-        conditioning, pooled, neg_conditioning, neg_pooled = self.prompt_manager.createCompel(self.in_base_model, prompt, negative_prompt)
-        # Define compel for Refiner model 
-        # ref_conditioning, ref_pooled, ref_neg_conditioning, ref_neg_pooled = self.prompt_manager.createCompel(self.in_ref_model, prompt, negative_prompt, [True])
-
-
-        k = 1
-        for i in [0.9, 0.7, 0.5]: 
-            
-            init_image = self.load_image(image_url)
-            init_image = init_image.resize((512, 512))    
-            conditioning_image, outpaint_mask = create_outpainting_image_and_mask(init_image, i)
-
-            output = self.in_base_model(
-                prompt_embeds=conditioning,
-                pooled_prompt_embeds=pooled,
-                negative_prompt_embeds=neg_conditioning,
-                negative_pooled_prompt_embeds=neg_pooled,
-                image=conditioning_image,
-                mask_image=outpaint_mask,
-                height=1024,
-                width=1024,
-                generator=seed,
-                num_inference_steps=num_inference_steps
-            ).images[0]
-
-            output_image_link = f"./zoom_out_{k}.png"
-            output.save(f"{output_image_link}")
-            k = k + 1
-            image_url = output_image_link
-            
-
-    @torch.inference_mode()
-    def predict(
-        self,
-        prompt: str = Input(
-            description="Write the prompt here",
-            default="(Realistic Photo:2) of (Ultra detailed:1.8) glamour portrait shot (from above:0.5) of rich sophisticated old european in fancy clothes, ((overwhelming fatigue)), wrinkles of age, photorealistic, moody colors, gritty, masterpiece, best quality, (intricate details), (****), eldritch, glow, glowing eyes, (volumetric lighting), unique pose, dynamic pose, dutch angle, 35mm, anamorphic, lightroom, cinematography, film grain, HDR10, 8k hdr, Steve McCurry, ((cinematic)), RAW, color graded portra 400 film, remarkable color, raytracing, subsurface scattering, hyperrealistic, extreme skin details, skin pores, deep shadows, contrast, dark theme"
-        ),
-        negative_prompt: str = Input(
-            description="Write the prompt here",
-            default="(((golden ratio))), bw, (tan skin:1.3),(worst quality:2), (low quality:2), low-res, (nose2), (((chromatic aberration))), ((blur censor)), ((blurry)), (blurry background), (blurry foreground), bokeh, (chromatic aberration), cosplay photo, eyelashes, motion blur, nose, overexposed, (deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, 4 fingers, 3 fingers, too many fingers, long neck, open mouth, closed mouth"
-        ),
-        image_url: Path = Input(
-            description="Input image for img2img or inpaint mode",
-            default=None,
-        ),
-        num_inference_steps: int = Input(
-            description="Number of inference steps",
-            default=30
-        ),
-        seed: int = Input(
-            description="Seed number",
-            default=None
+        config_file = hf_hub_download(
+            CONTROLNET_MODEL,
+            filename="config_promax.json",
+            cache_dir=CONTROLNET_MODEL_CACHE
         )
-    ) -> Path:
-        
-        if prompt is None:
-            raise Exception("You should write a prompt")
-        
-        if image_url is None:
-            raise Exception("You should provide an image")
-       
-        # Seed generator 
-        if seed is None: 
-            seed = torch.manual_seed(int.from_bytes(os.urandom(2), "big"))
-        
-        print(f"Starting {self.variant} {self.torch_type} {self.device}")
-        self.in_base_model.enable_model_cpu_offload()
 
-        prompt = self.prompt_manager.rewrite_prompt_for_compel(prompt)
-        negative_prompt = self.prompt_manager.rewrite_prompt_for_compel(negative_prompt)
+        config = ControlNetModel_Union.load_config(config_file)
+        controlnet_model = ControlNetModel_Union.from_config(config)
+        model_file = hf_hub_download(
+            CONTROLNET_MODEL,
+            filename="diffusion_pytorch_model_promax.safetensors",
+            cache_dir=CONTROLNET_MODEL_CACHE
+        )
+        state_dict = load_state_dict(model_file)
+        model, _, _, _, _ = ControlNetModel_Union._load_pretrained_model(
+            controlnet_model, state_dict, model_file, CONTROLNET_MODEL,
+        )
+        model.to(device=get_torch_device(), dtype=torch.float16)
 
-        # Define Compel for Base model 
-        conditioning, pooled, neg_conditioning, neg_pooled = self.prompt_manager.createCompel(self.in_base_model, prompt, negative_prompt)
-        # Define compel for Refiner model 
-        # ref_conditioning, ref_pooled, ref_neg_conditioning, ref_neg_pooled = self.prompt_manager.createCompel(self.in_ref_model, prompt, negative_prompt, [True])
+        vae = AutoencoderKL.from_pretrained(
+            VAE_MODEL, torch_dtype=torch.float16, 
+            cache_dir=VAE_CACHE
+        ).to(get_torch_device())
 
+        self.pipe = StableDiffusionXLFillPipeline.from_pretrained(
+            BASE_MODEL,
+            torch_dtype=torch.float16,
+            vae=vae,
+            controlnet=model,
+            variant="fp16",
+            cache_dir=BASE_MODEL_CACHE
+        ).to(get_torch_device())
 
-        init_image = self.load_image(image_url)
-        init_image = init_image.resize((768, 768))
-        
-        conditioning_image, outpaint_mask = create_outpainting_image_and_mask(init_image, 0.5)
+        self.pipe.scheduler = TCDScheduler.from_config(self.pipe.scheduler.config)
 
-        output = self.in_base_model(
-            prompt_embeds=conditioning,
-            pooled_prompt_embeds=pooled,
-            negative_prompt_embeds=neg_conditioning,
-            negative_pooled_prompt_embeds=neg_pooled,
-            image=conditioning_image,
-            mask_image=outpaint_mask,
-            height=1024,
-            width=1024,
-            generator=seed,
-            num_inference_steps=num_inference_steps
-        ).images[0]
-
-        output.save(temp_local_image)
-
-        return Path( temp_local_image )
     
+    def predict(self, 
+                image: Path = Input(description="Image", default=None), 
+                width: int = Input(description="Width", default=720), 
+                height: int = Input(description="height", default=1280), 
+                overlap_width: int = Input(description="overlap width"), 
+                num_inference_steps: int = Input(description="Steps", default=8, max=12),
+                resize_option: str = Input(description="height", default="Full"), 
+                custom_resize_size: str = Input(description="Custom Resize Size (Optional)", default=""), 
+                prompt_input: str = Input(
+                    description="Write here your prompt (Optional)",
+                    default=""
+                ),
+                alignment: str = Input(
+                    description="Alignment",
+                    default="Middle"
+                )
+        ) -> Path:
+        source = image
+        target_size = (width, height)
+        overlap = overlap_width
 
-def main():
-    pred = Predictor()
-    pred.setup()
-    pred.predict_mps()
+        # Upscale if source is smaller than target in both dimensions
+        if source.width < target_size[0] and source.height < target_size[1]:
+            scale_factor = min(target_size[0] / source.width, target_size[1] / source.height)
+            new_width = int(source.width * scale_factor)
+            new_height = int(source.height * scale_factor)
+            source = source.resize((new_width, new_height), Image.LANCZOS)
+
+        if source.width > target_size[0] or source.height > target_size[1]:
+            scale_factor = min(target_size[0] / source.width, target_size[1] / source.height)
+            new_width = int(source.width * scale_factor)
+            new_height = int(source.height * scale_factor)
+            source = source.resize((new_width, new_height), Image.LANCZOS)
+        
+        if resize_option == "Full":
+            resize_size = max(source.width, source.height)
+        elif resize_option == "1/2":
+            resize_size = max(source.width, source.height) // 2
+        elif resize_option == "1/3":
+            resize_size = max(source.width, source.height) // 3
+        elif resize_option == "1/4":
+            resize_size = max(source.width, source.height) // 4
+        else:  # Custom
+            resize_size = custom_resize_size
+
+        aspect_ratio = source.height / source.width
+        new_width = resize_size
+        new_height = int(resize_size * aspect_ratio)
+        source = source.resize((new_width, new_height), Image.LANCZOS)
+
+        if not self.can_expand(source.width, source.height, target_size[0], target_size[1], alignment):
+            alignment = "Middle"
+
+        # Calculate margins based on alignment
+        if alignment == "Middle":
+            margin_x = (target_size[0] - source.width) // 2
+            margin_y = (target_size[1] - source.height) // 2
+        elif alignment == "Left":
+            margin_x = 0
+            margin_y = (target_size[1] - source.height) // 2
+        elif alignment == "Right":
+            margin_x = target_size[0] - source.width
+            margin_y = (target_size[1] - source.height) // 2
+        elif alignment == "Top":
+            margin_x = (target_size[0] - source.width) // 2
+            margin_y = 0
+        elif alignment == "Bottom":
+            margin_x = (target_size[0] - source.width) // 2
+            margin_y = target_size[1] - source.height
+
+        background = Image.new('RGB', target_size, (255, 255, 255))
+        background.paste(source, (margin_x, margin_y))
+
+        mask = Image.new('L', target_size, 255)
+        mask_draw = ImageDraw.Draw(mask)
+
+        # Adjust mask generation based on alignment
+        if alignment == "Middle":
+            mask_draw.rectangle([
+                (margin_x + overlap, margin_y + overlap),
+                (margin_x + source.width - overlap, margin_y + source.height - overlap)
+            ], fill=0)
+        elif alignment == "Left":
+            mask_draw.rectangle([
+                (margin_x, margin_y),
+                (margin_x + source.width - overlap, margin_y + source.height)
+            ], fill=0)
+        elif alignment == "Right":
+            mask_draw.rectangle([
+                (margin_x + overlap, margin_y),
+                (margin_x + source.width, margin_y + source.height)
+            ], fill=0)
+        elif alignment == "Top":
+            mask_draw.rectangle([
+                (margin_x, margin_y),
+                (margin_x + source.width, margin_y + source.height - overlap)
+            ], fill=0)
+        elif alignment == "Bottom":
+            mask_draw.rectangle([
+                (margin_x, margin_y + overlap),
+                (margin_x + source.width, margin_y + source.height)
+            ], fill=0)
+
+        cnet_image = background.copy()
+        cnet_image.paste(0, (0, 0), mask)
+
+        try: 
+            final_prompt = f"{prompt_input} , high quality, 4k, 8k, high resolution, detailed"
+
+            (
+                prompt_embeds,
+                negative_prompt_embeds,
+                pooled_prompt_embeds,
+                negative_pooled_prompt_embeds,
+            ) = self.pipe.encode_prompt(final_prompt, get_torch_device(), True)
+
+            for image in self.pipe(
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=negative_prompt_embeds,
+                pooled_prompt_embeds=pooled_prompt_embeds,
+                negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+                image=cnet_image,
+                num_inference_steps=num_inference_steps
+            ):
+                # yield cnet_image, image
+                pass
+
+            image = image.convert("RGBA")
+            cnet_image.paste(image, (0, 0), mask)
+        except Exception as error:
+            print("----- Something went wrong")
+            print(f"{error}")
+
+        # yield background, cnet_image
+        return Path(cnet_image)
 
 
-if __name__ == "__main__":
-    main()
+
+    def can_expand(self, source_width, source_height, target_width, target_height, alignment):
+        """Checks if the image can be expanded based on the alignment."""
+        if alignment in ("Left", "Right") and source_width >= target_width:
+            return False
+        if alignment in ("Top", "Bottom") and source_height >= target_height:
+            return False
+        return True

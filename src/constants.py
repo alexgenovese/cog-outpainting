@@ -1,16 +1,12 @@
-HF_TOKEN = "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"
-VAE_CACHE = './weights-cache/vae'
-BASE_MODEL_CACHE = './weights-cache/base_model'
-REFINER_MODEL_CACHE = './weights-cache/refiner_model'
-VAE = "madebyollin/sdxl-vae-fp16-fix"
-# SAFETENSOR_CACHE = "./_local_testing/custom_models/"
-# SAFETENSOR_BASE_MODEL = "realvisxlV20_v20Bakedvaex0.25+formulaxlXLComfyui_v20Prunedx0.5+colossusProjectXLSFW_49bExperimentalx0.25.fp16.safetensors"
-BASE_MODEL = "alexgenovese/reica06"
-REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0"
+import os 
 
-# TODO - Dovrebbero andare nelle configurazioni globali della funzione in modo da essere modificabili facilmente e velocemente
-# PROMPT_NEGATIVE = "(((golden ratio))), bw, (tan skin:1.3),(worst quality:2), (low quality:2), low-res, (nose2), (((chromatic aberration))), ((blur censor)), ((blurry)), (blurry background), (blurry foreground), bokeh, (chromatic aberration), cosplay photo, eyelashes, motion blur, nose, overexposed, (deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, 4 fingers, 3 fingers, too many fingers, long neck, open mouth, closed mouth"
-PROMPT_NEGATIVE = "(worst quality, low quality, normal quality, lowres, low details, oversaturated, undersaturated, overexposed, underexposed, grayscale, bw, bad photo, bad photography, bad art:1.4), (watermark, signature, text font, username, error, logo, words, letters, digits, autograph, trademark, name:1.2), (blur, blurry, grainy), morbid, ugly, asymmetrical, mutated malformed, mutilated, poorly lit, bad shadow, draft, cropped, out of frame, cut off, censored, jpeg artifacts, out of focus, glitch, duplicate, (airbrushed, cartoon, anime, semi-realistic, cgi, render, blender, digital art, manga, amateur:1.3), (3D ,3D Game, 3D Game Scene, 3D Character:1.1), (bad hands, bad anatomy, bad body, bad face, bad teeth, bad arms, bad legs, deformities:1.3)"
-# PROMPT_POSITIVE = "photorealistic facial expression|hairstyle, highly intricate, professional photo, natural lighting, ((masterpiece)),(high detailed skin:1.4), 8k, soft lighting, high quality, Fujifilm XT3, ultra-detailed, highly detailed, sharp focus, award winning, octane render unreal engine, volumetrics dtx, high definition, nice bokeh, (fashion model:1.5), (realistic, photorealistic:2), (fashion-forward:1.3)"
-PROMPT_POSITIVE = "4k, professional, intricate details even to the smallest particle, extreme detail of the environment, sharp portrait, well lit, (ultra realistic, realistic:1.9), beautiful shadows, bright, photo quality, masterpiece, 8k, ultra-detailed, highly detailed, sharp focus, award winning, octane render unreal engine, volumetrics dtx, high definition, bokeh, (fashion model:1.5), (realistic, photorealistic:2), (fashion-forward:1.3)"
-# professional photo, natural lighting, (Fujifilm XT3, ultra-detailed, highly detailed, sharp focus, award winning, octane render unreal engine, volumetrics dtx, high definition, nice bokeh, (fashion model:1.5), (realistic, photorealistic:2), (fashion-forward:1.3), (fashion model:1.5), (realistic, photorealistic:2), (fashion-forward:1.3)
+base_path = os.path.abspath(os.getcwd())
+VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix" 
+VAE_CACHE = os.path.join( base_path, 'weights-cache/vae' ) 
+BASE_MODEL = "SG161222/RealVisXL_V5.0_Lightning"
+BASE_MODEL_CACHE = os.path.join( base_path, 'weights-cache/base_model')
+CONTROLNET_MODEL = "xinsir/controlnet-union-sdxl-1.0"
+CONTROLNET_MODEL_CACHE = os.path.join( base_path, 'weights-cache/controlnet-union' ) 
+CONTROL_LOCAL = ""
+
+hf_token = "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"

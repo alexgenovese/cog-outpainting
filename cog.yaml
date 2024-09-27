@@ -2,29 +2,19 @@
 # Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
 
 build:
-  gpu: true
+  #gpu: true
   cuda: "11.8"
-  python_version: "3.9"
+  python_version: "3.10.6"
   system_packages:
     - "ffmpeg"
     - "libsm6"
     - "libxext6"
     - "wget"
-  python_packages:
-    - "torchvision==0.15.2"
-    - "transformers==4.34.1"
-    - "torch==2.0.1"
-    - "compel==2.0.2"
-    - "omegaconf==2.3.0"
-    - "invisible-watermark==0.2.0"
-    - "accelerate==0.24.1"
-    - "safetensors==0.4.0"
-    - "kornia==0.7.0"
-    - "huggingface_hub>=0.16.4"
+
+  python_requirements: requirements.txt
 
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.3/pget" && chmod +x /usr/local/bin/pget
-    - pip install git+https://github.com/huggingface/diffusers.git
     
 predict: "predict.py:Predictor"
-image: "r8.im/alexgenovese/outpainting"
+image: "r8.im/alexgenovese/flux-outpainting"

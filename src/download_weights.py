@@ -1,15 +1,11 @@
-import os, subprocess, time, shutil
+import os, torch, time, shutil
+from diffusers.models.model_loading_utils import load_state_dict
+from controlnet_union import ControlNetModel_Union
+from pipeline_fill_sd_xl import StableDiffusionXLFillPipeline
+from huggingface_hub import login, hf_hub_download
+from diffusers import AutoencoderKL
+from constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE
 from tqdm import tqdm
-from huggingface_hub import login
-from diffusers import AutoencoderKL,  StableDiffusionXLPipeline, DiffusionPipeline
-
-VAE_MODEL = "madebyollin/sdxl-vae-fp16-fix"
-VAE_CACHE = '/src/weights-cache/vae'
-BASE_MODEL = "SG161222/RealVisXL_V2.0"
-BASE_MODEL_CACHE = '/src/weights-cache/base_model'
-REFINER_MODEL = "stabilityai/stable-diffusion-xl-refiner-1.0" # https://civitai.com/models/160350/not-real-realistic-xl
-REFINER_MODEL_CACHE = '/src/weights-cache/refiner_model'
-hf_token = "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"
 
 pipe = None
 vae = None
@@ -34,13 +30,58 @@ def cache_vae():
             shutil.rmtree(VAE_CACHE)
             print("VAE - Removed empty cache directory")
 
+# loaded into base model
+def cache_controlnet():
+    if not os.path.exists(CONTROLNET_MODEL_CACHE):
+        try: 
+            os.makedirs(CONTROLNET_MODEL_CACHE)
+            start = time.time()
+
+            config_file = hf_hub_download(
+                CONTROLNET_MODEL,
+                filename="config_promax.json",
+                cache_dir=CONTROLNET_MODEL_CACHE
+            )
+
+            config = ControlNetModel_Union.load_config(config_file)
+            controlnet_model = ControlNetModel_Union.from_config(config)
+            model_file = hf_hub_download(
+                CONTROLNET_MODEL,
+                filename="diffusion_pytorch_model_promax.safetensors",
+                cache_dir=CONTROLNET_MODEL_CACHE
+            )
+            state_dict = load_state_dict(model_file)
+            model, _, _, _, _ = ControlNetModel_Union._load_pretrained_model(
+                controlnet_model, state_dict, model_file, CONTROLNET_MODEL,
+            )
+
+            model.save_pretrained(CONTROLNET_MODEL_CACHE, safe_serialization=True)
+            print("Downloading took: ", time.time() - start)
+
+            return model
+
+        except Exception as error:
+            print("CONTROLNET_MODEL - Something went wrong while downloading")
+            print(f"{error}")
+            shutil.rmtree(CONTROLNET_MODEL_CACHE)
+            print("CONTROLNET_MODEL - Removed empty cache directory")
+
+
 def cache_base_model():
     if not os.path.exists(BASE_MODEL_CACHE):
         try:
             os.makedirs(BASE_MODEL_CACHE)
             start = time.time()
-            print("Converting Reica custom model")
-            pipe = StableDiffusionXLPipeline.from_pretrained( BASE_MODEL )
+            local_controlnet_union = cache_controlnet()
+
+            pipe = StableDiffusionXLFillPipeline.from_pretrained(
+                BASE_MODEL,
+                torch_dtype=torch.float16,
+                vae=vae,
+                controlnet=local_controlnet_union,
+                variant="fp16",
+                cache_dir=BASE_MODEL_CACHE
+            )
             pipe.save_pretrained(BASE_MODEL_CACHE, safe_serialization=True)
             print("Downloading took: ", time.time() - start)
         except Exception as error:
@@ -50,28 +91,8 @@ def cache_base_model():
             print("BASE_MODEL - Removed empty cache directory")
 
 
-def cache_refiner():
-    if not os.path.exists(REFINER_MODEL_CACHE):
-        try: 
-            os.makedirs(REFINER_MODEL_CACHE)
 
-            if pipe is None:
-                try: 
-                  pipe = StableDiffusionXLPipeline.from_pretrained( BASE_MODEL, cache_dir=BASE_MODEL_CACHE )
-                except Exception as error:
-                  raise Exception("No base model found")
-
-            refiner = DiffusionPipeline.from_pretrained(REFINER_MODEL)
-            refiner.save_pretrained(REFINER_MODEL_CACHE, safe_serialization=True)
-        except Exception as error:
-            print("REFINER_MODEL - Something went wrong while downloading")
-            print(f"{error}")
-            shutil.rmtree(REFINER_MODEL_CACHE)
-            print("REFINER_MODEL - Removed empty cache directory")
-
-
-
-if __name__ == "__main__":
+def download_weights(): 
     print("-----> Start caching models...")
     with tqdm(total=100, desc="Creating cache") as pbar:
         login_hf()
@@ -81,9 +102,10 @@ if __name__ == "__main__":
         pbar.update(25)
 
         cache_base_model()
-        pbar.update(25)
-
-        cache_refiner()
-        pbar.update(25)
+        pbar.update(50)
 
     print("-----> Caching completed!")
+
+
+if __name__ == "__main__":
+    download_weights() 
