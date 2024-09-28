@@ -194,11 +194,7 @@ class Predictor(BasePredictor):
         return Path(cnet_image)
 
 
-
-    def can_expand(self, source_width, source_height, target_width, target_height, alignment):
-        """Checks if the image can be expanded based on the alignment."""
-        if alignment in ("Left", "Right") and source_width >= target_width:
-            return False
-        if alignment in ("Top", "Bottom") and source_height >= target_height:
-            return False
-        return True
+if __name__ == "__main__":
+    pred = Predictor()
+    pred.setup()
+    pred.predict()
