@@ -1,10 +1,11 @@
 import os, torch, time, shutil
-from diffusers.models.model_loading_utils import load_state_dict
 from controlnet_union import ControlNetModel_Union
 from pipeline_fill_sd_xl import StableDiffusionXLFillPipeline
 from huggingface_hub import login, hf_hub_download
-from diffusers import AutoencoderKL
-from constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE
+from diffusers.models.model_loading_utils import load_state_dict
+from diffusers import AutoencoderKL, FluxControlNetModel
+from diffusers.pipelines import FluxControlNetPipeline
+from constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE, UPSCALER_CACHE, UPSCALER_MODEL
 from tqdm import tqdm
 
 pipe = None
@@ -91,6 +92,21 @@ def cache_base_model():
             print("BASE_MODEL - Removed empty cache directory")
 
 
+def cache_upscaler():
+    if not os.path.exists(UPSCALER_CACHE): 
+        try:
+            os.makedirs(UPSCALER_CACHE)
+            controlnet = FluxControlNetModel.from_pretrained(UPSCALER_MODEL)
+            pipe = FluxControlNetPipeline.from_pretrained(
+                BASE_MODEL, controlnet=controlnet
+            )
+            vae.save_pretrained(UPSCALER_CACHE, safe_serialization=True)
+        except Exception as error:
+            print("VAE - Something went wrong while downloading")
+            print(f"{error}")
+            shutil.rmtree(UPSCALER_CACHE)
+            print("VAE - Removed empty cache directory")
+
 
 def download_weights(): 
     print("-----> Start caching models...")
@@ -102,7 +118,10 @@ def download_weights():
         pbar.update(25)
 
         cache_base_model()
-        pbar.update(50)
+        pbar.update(25)
+
+        cache_upscaler()
+        pbar.update(25)
 
     print("-----> Caching completed!")
 

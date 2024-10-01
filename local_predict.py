@@ -13,8 +13,10 @@ from PIL import Image, ImageDraw
 sys.path.append("./src")
 from src.utils import get_torch_device
 from src.download_weights import download_weights
-from src.constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE, base_path
-
+from src.constants import hf_token, VAE_CACHE, VAE_MODEL, BASE_MODEL, BASE_MODEL_CACHE, CONTROLNET_MODEL, CONTROLNET_MODEL_CACHE, UPSCALER_MODEL
+from diffusers.utils import load_image
+from diffusers import FluxControlNetModel
+from diffusers.pipelines import FluxControlNetPipeline
 
 class Predictor(BasePredictor):
     def setup(self):
@@ -58,23 +60,25 @@ class Predictor(BasePredictor):
 
     
     def predict(self, 
-                image: Path = Input(description="Image", default=None), 
-                width: int = Input(description="Width", default=720), 
-                height: int = Input(description="height", default=1280), 
-                overlap_width: int = Input(description="overlap width"), 
-                num_inference_steps: int = Input(description="Steps", default=8),
-                resize_option: str = Input(description="height", default="Full"), 
-                custom_resize_size: str = Input(description="Custom Resize Size (Optional)", default=""), 
-                prompt_input: str = Input(
-                    description="Write here your prompt (Optional)",
-                    default=""
-                ),
-                alignment: str = Input(
-                    description="Alignment",
-                    default="Middle"
-                )
+                image = "https://fffiloni-diffusers-image-outpaint.hf.space/file=/tmp/gradio/e6846698832579693cacb09bc4ac8c8e0d3e7ec4ef6dda430fee13b05146c512/example_3.jpg",
+                width=720, 
+                height=1280, 
+                overlap_width=72, 
+                num_inference_steps=8,
+                resize_option="Full", 
+                custom_resize_size="", 
+                prompt_input="",
+                alignment="Middle",
+                upscaler=True,
+                upscale_factor=1.5,     # 1 to 4
+                controlnet_conditioning_scale=0.6 # 0.1 to 1.5
+
+
         ) -> Path:
-        source = image
+        init_image = load_image( image )
+        init_image.convert("RGB")
+
+        source = init_image
         target_size = (width, height)
         overlap = overlap_width
 
@@ -189,9 +193,48 @@ class Predictor(BasePredictor):
         except Exception as error:
             print("----- Something went wrong")
             print(f"{error}")
+        
+        # temp
+        cnet_image.save('./image.png')
+
+        if upscaler == True: 
+            # Load controlnet pipeline 
+            controlnet = FluxControlNetModel.from_pretrained(
+                UPSCALER_MODEL, torch_dtype=torch.float16
+            ).to(get_torch_device())
+            upscaler_pipe = FluxControlNetPipeline.from_pretrained(
+                BASE_MODEL, controlnet=controlnet, torch_dtype=torch.float16
+            )
+            upscaler_pipe.to(get_torch_device())
+
+            # rescale with upscale factor
+            w, h = cnet_image.size
+            control_image = cnet_image.resize((w * upscale_factor, h * upscale_factor))
+            image = self.upscaler_pipe(
+                prompt="",
+                control_image=control_image,
+                controlnet_conditioning_scale=controlnet_conditioning_scale,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=3.5,
+                height=control_image.size[1],
+                width=control_image.size[0],
+                generator=torch.Generator().manual_seed(1234),
+            ).images[0]
+            cnet_image = image
 
         # yield background, cnet_image
-        return Path(cnet_image)
+        cnet_image.save('./image.png')
+        # background.save('./background.png')
+        return Path('./image.png')
+
+
+    def can_expand(self, source_width, source_height, target_width, target_height, alignment):
+        """Checks if the image can be expanded based on the alignment."""
+        if alignment in ("Left", "Right") and source_width >= target_width:
+            return False
+        if alignment in ("Top", "Bottom") and source_height >= target_height:
+            return False
+        return True
 
 
 if __name__ == "__main__":
